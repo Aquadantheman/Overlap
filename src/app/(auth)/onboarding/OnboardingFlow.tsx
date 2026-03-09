@@ -1,6 +1,7 @@
-﻿"use client"
+"use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { geocodeZip } from "@/lib/geo/geocode"
 import { hashPhone } from "@/lib/utils"
@@ -42,6 +43,7 @@ export default function OnboardingFlow() {
     comfortLevel: "open",
     interests: [],
   })
+  const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
@@ -54,7 +56,7 @@ export default function OnboardingFlow() {
         setUserId(data.user.id)
       } else {
         // No session - redirect to signin
-        window.location.href = "/signin"
+        router.replace("/signin")
       }
     })
   }, [])
@@ -84,7 +86,7 @@ export default function OnboardingFlow() {
       .single()
 
     if (existing) {
-      window.location.href = "/overlap"
+      router.replace("/overlap")
       return
     }
 
@@ -140,7 +142,7 @@ export default function OnboardingFlow() {
       return
     }
 
-    window.location.href = "/overlap"
+    router.replace("/overlap")
   }
 
   return (

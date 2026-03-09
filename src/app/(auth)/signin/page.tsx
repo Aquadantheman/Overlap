@@ -1,6 +1,7 @@
-﻿"use client"
+"use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
@@ -12,6 +13,7 @@ export default function SignInPage() {
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
 
   const handleSubmit = async () => {
     setLoading(true)
@@ -19,14 +21,18 @@ export default function SignInPage() {
     const supabase = createClient()
 
     if (mode === "signup") {
-      const { error } = await supabase.auth.signUp({ email, password })
+      const { data, error } = await supabase.auth.signUp({ email, password })
       if (error) { setError(error.message); setLoading(false); return }
-      // Session is automatically stored in cookies by Supabase
-      window.location.href = "/onboarding"
+      if (!data.session) {
+        setError("Account created but no session returned. Try signing in.")
+        setLoading(false)
+        return
+      }
+      router.replace("/onboarding")
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) { setError(error.message); setLoading(false); return }
-      window.location.href = "/overlap"
+      router.replace("/overlap")
     }
   }
 

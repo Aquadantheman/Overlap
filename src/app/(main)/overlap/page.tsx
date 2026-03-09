@@ -182,14 +182,22 @@ export default function OverlapPage() {
               Your overlap
             </h1>
           </div>
-          {pendingPingCount > 0 && (
+          <div className="flex items-center gap-2">
             <a
-              href="/connections"
-              className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium"
+              href="/network"
+              className="px-3 py-1.5 bg-stone-100 text-stone-600 rounded-full text-xs font-medium hover:bg-stone-200 transition-all"
             >
-              {pendingPingCount} new {pendingPingCount === 1 ? "ping" : "pings"}
+              Network
             </a>
-          )}
+            {pendingPingCount > 0 && (
+              <a
+                href="/connections"
+                className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium"
+              >
+                {pendingPingCount} new {pendingPingCount === 1 ? "ping" : "pings"}
+              </a>
+            )}
+          </div>
         </div>
 
         {state === "empty" ? (
