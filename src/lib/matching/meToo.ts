@@ -27,6 +27,13 @@ export async function signalMeToo(
     return { success: false, error: error.message }
   }
 
+  // Update last_engaged_at for this interest (tracks activity for decay)
+  await supabase
+    .from("user_interests")
+    .update({ last_engaged_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("activity_id", activityId)
+
   return { success: true }
 }
 
@@ -59,7 +66,7 @@ export async function getMySignals(userId: string): Promise<string[]> {
     .select("activity_id")
     .eq("user_id", userId)
 
-  return data?.map((s) => s.activity_id) || []
+  return data?.map((s: { activity_id: string }) => s.activity_id) || []
 }
 
 // Check for mutual matches
@@ -92,7 +99,7 @@ export async function findMutuals(userId: string): Promise<MutualMatch[]> {
     return []
   }
 
-  const myActivityIds = mySignals.map((s) => s.activity_id)
+  const myActivityIds = mySignals.map((s: { activity_id: string }) => s.activity_id)
 
   // Get other users who have signaled on the same activities
   const { data: otherSignals } = await supabase
@@ -106,7 +113,7 @@ export async function findMutuals(userId: string): Promise<MutualMatch[]> {
   }
 
   // Get profiles of those users to check distance
-  const otherUserIds = [...new Set(otherSignals.map((s) => s.user_id))]
+  const otherUserIds = [...new Set(otherSignals.map((s: { user_id: string }) => s.user_id))]
 
   const { data: otherProfiles } = await supabase
     .from("profiles")
@@ -118,7 +125,8 @@ export async function findMutuals(userId: string): Promise<MutualMatch[]> {
   }
 
   // Filter by distance (must be within BOTH users' radii)
-  const nearbyProfiles = otherProfiles.filter((p) => {
+  type OtherProfile = { id: string; handle: string; lat: number | null; lng: number | null; radius_miles: number }
+  const nearbyProfiles = otherProfiles.filter((p: OtherProfile) => {
     if (!p.lat || !p.lng) return false
     const distance = haversineDistance(myProfile.lat, myProfile.lng, p.lat, p.lng)
     return distance <= myProfile.radius_miles && distance <= p.radius_miles
@@ -128,7 +136,7 @@ export async function findMutuals(userId: string): Promise<MutualMatch[]> {
     return []
   }
 
-  const nearbyUserIds = new Set(nearbyProfiles.map((p) => p.id))
+  const nearbyUserIds = new Set(nearbyProfiles.map((p: OtherProfile) => p.id))
 
   // Get activity details
   const { data: activities } = await supabase
@@ -136,8 +144,9 @@ export async function findMutuals(userId: string): Promise<MutualMatch[]> {
     .select("id, label, verb")
     .in("id", myActivityIds)
 
-  const activityMap = new Map(activities?.map((a) => [a.id, a]) || [])
-  const profileMap = new Map(nearbyProfiles.map((p) => [p.id, p]))
+  type ActivityRow = { id: string; label: string; verb: string }
+  const activityMap = new Map<string, ActivityRow>(activities?.map((a: ActivityRow) => [a.id, a]) || [])
+  const profileMap = new Map<string, OtherProfile>(nearbyProfiles.map((p: OtherProfile) => [p.id, p]))
 
   // Build mutual matches
   const mutuals: MutualMatch[] = []

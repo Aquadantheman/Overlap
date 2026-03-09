@@ -6,29 +6,34 @@ import type { ComfortLevel } from "./OnboardingFlow"
 type Props = {
   zipCode: string
   neighborhood: string
-  radiusMiles: 1 | 2 | 5 | 10
+  radiusMiles: number
   comfortLevel: ComfortLevel
   onChange: (patch: {
     zipCode?: string
     neighborhood?: string
-    radiusMiles?: 1 | 2 | 5 | 10
+    radiusMiles?: number
     comfortLevel?: ComfortLevel
   }) => void
   onNext: () => void
   onBack: () => void
 }
 
-const RADII: { value: 1 | 2 | 5 | 10; label: string }[] = [
-  { value: 1, label: "1 mi" },
-  { value: 2, label: "2 mi" },
-  { value: 5, label: "5 mi" },
-  { value: 10, label: "10 mi" },
-]
+// Min/max for the slider
+const MIN_RADIUS = 1
+const MAX_RADIUS = 15
 
 export default function StepLocation({
   zipCode, neighborhood, radiusMiles, comfortLevel, onChange, onNext, onBack
 }: Props) {
   const isValid = zipCode.length === 5 && /^\d+$/.test(zipCode) && neighborhood.length >= 2
+
+  // Format the label based on distance
+  const getDistanceLabel = (miles: number) => {
+    if (miles <= 2) return "walking distance"
+    if (miles <= 5) return "biking distance"
+    if (miles <= 10) return "short drive"
+    return "across town"
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -73,26 +78,30 @@ export default function StepLocation({
           </p>
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">
             How far are you willing to go?
           </label>
-          <div className="grid grid-cols-4 gap-2">
-            {RADII.map((r) => (
-              <button
-                key={r.value}
-                onClick={() => onChange({ radiusMiles: r.value })}
-                className={cn(
-                  "py-2.5 rounded-xl text-sm font-medium transition-all border",
-                  radiusMiles === r.value
-                    ? "bg-stone-900 text-white border-stone-900"
-                    : "bg-white text-stone-500 border-stone-200 hover:border-stone-400"
-                )}
-              >
-                {r.label}
-              </button>
-            ))}
+          <div className="px-1">
+            <input
+              type="range"
+              min={MIN_RADIUS}
+              max={MAX_RADIUS}
+              value={radiusMiles}
+              onChange={(e) => onChange({ radiusMiles: parseInt(e.target.value) })}
+              className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-stone-900"
+            />
+            <div className="flex justify-between mt-2">
+              <span className="text-xs text-stone-400">{MIN_RADIUS} mi</span>
+              <span className="text-sm font-medium text-stone-900">
+                {radiusMiles} {radiusMiles === 1 ? "mile" : "miles"}
+              </span>
+              <span className="text-xs text-stone-400">{MAX_RADIUS} mi</span>
+            </div>
           </div>
+          <p className="text-xs text-stone-400 text-center">
+            {getDistanceLabel(radiusMiles)}
+          </p>
         </div>
 
         <div className="flex flex-col gap-2">

@@ -104,8 +104,8 @@ After selecting an activity, user adds brief personal context: experience level,
 **Activity-level follow-ups at selection.**
 Two lightweight questions per activity: frequency (a few times a year / monthly / weekly) and level (beginner / casual / experienced). Low friction, real signal, useful for matching people at compatible levels.
 
-**Interest decay.**
-Interests without engagement gradually lose matching weight. Active users float up. Users get a periodic gentle nudge — "still into these?" — not a dark pattern, just honest maintenance.
+**Interest decay via Active/Quiet toggle.**
+Interests don't disappear — they go quiet. Users can toggle interests between Active (participates in matching) and Quiet (paused, not deleted). The `last_engaged_at` timestamp tracks when a user last engaged with an activity (signaling "me too" or sending a ping). This allows future decay-based nudges without forcing users to delete interests they still care about but aren't actively pursuing.
 
 ---
 
@@ -311,15 +311,53 @@ Fields: `parent_id`, `tier`, `status` (active/pending/merged), `proposed_by`
 
 ## Data Model Implications
 
+**Implemented:**
 ```
-user_interests:   + frequency, level, last_active_at
+user_interests:   frequency, level, is_active (bool), last_engaged_at
+soft_pings:       activity_id, timeframe, message, status, responded_at
+connections:      shared_activity_ids[], status, connected_at
+profiles:         radius_miles (1-15), comfort_level, phone_hash
+```
+
+**Still needed for future features:**
+```
 connections:      + group_meetup_completed (bool) — gates one-on-one
-meetups:          + venue_type (public only), min_attendees, status
+meetups:          venue_type (public only), min_attendees, status
                     (proposed/confirmed/completed/cancelled), cancelled_at
-trust_signals:    + surfaced_after_meetup_id (FK meetups) — signals only valid post-meetup
-soft_pings:       + activity_context_id (FK activities), template_used
-profiles:         + comfort_level (group_only | open), active_ping_count,
-                    phone_number (hashed, never displayed)
+trust_signals:    surfaced_after_meetup_id (FK meetups) — signals only valid post-meetup
 ```
 
 v2+: connection model may need to support group-to-group, not just person-to-person.
+
+---
+
+## Implementation Status
+
+*As of 2026-03-09*
+
+### Built and Working
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Interest selection (max 7) | Done | With frequency/level per activity |
+| Active/Quiet toggle | Done | `is_active` boolean, editable in Settings |
+| Interest engagement tracking | Done | `last_engaged_at` updated on me-too and pings |
+| Overlap view (clusters) | Done | Shows count and recency |
+| "Me too" signal | Done | Simultaneous reveal when mutual |
+| Soft ping system | Done | Activity-framed, 140 char, no links, 5 cap |
+| Connections | Done | Created on ping acceptance |
+| Network graph | Done | Force-directed visualization |
+| Settings page | Done | Profile + interest management |
+| Radius as slider | Done | 1-15 miles continuous |
+
+### Designed but Not Yet Built
+
+| Feature | Priority | Blocked By |
+|---------|----------|------------|
+| Meetups (group proposals) | High | Nothing |
+| Trust signals | Medium | Meetups |
+| Group-first unlock | Medium | Meetups |
+| Scene growth data | Low | Nothing |
+| Notifications | Medium | Nothing |
+| Flavor text (private notes) | Low | Nothing |
+| Pairs/small groups (v2) | Future | Core flow completion |

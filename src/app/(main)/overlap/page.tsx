@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { findOverlaps, OverlapResult, OverlapCluster } from "@/lib/matching/findOverlaps"
 import { signalMeToo, removeMeToo, getMySignals, findMutuals, MutualMatch } from "@/lib/matching/meToo"
-import { sendPing, Timeframe, TIMEFRAME_LABELS, getPendingPingCount } from "@/lib/pings/softPing"
+import { sendPing, Timeframe, TIMEFRAME_LABELS } from "@/lib/pings/softPing"
 import { cn } from "@/lib/utils"
 
 type ViewState = "loading" | "no-profile" | "empty" | "has-overlaps"
@@ -22,7 +22,6 @@ export default function OverlapPage() {
   const [mySignals, setMySignals] = useState<Set<string>>(new Set())
   const [handle, setHandle] = useState<string>("")
   const [userId, setUserId] = useState<string>("")
-  const [pendingPingCount, setPendingPingCount] = useState<number>(0)
 
   // Ping composer state
   const [pingTarget, setPingTarget] = useState<PingTarget | null>(null)
@@ -57,11 +56,10 @@ export default function OverlapPage() {
 
     setHandle(profile.handle)
 
-    const [overlapResult, signals, mutualMatches, pingCount] = await Promise.all([
+    const [overlapResult, signals, mutualMatches] = await Promise.all([
       findOverlaps(user.id),
       getMySignals(user.id),
       findMutuals(user.id),
-      getPendingPingCount(user.id),
     ])
 
     if (!overlapResult) {
@@ -72,7 +70,6 @@ export default function OverlapPage() {
     setOverlaps(overlapResult)
     setMySignals(new Set(signals))
     setMutuals(mutualMatches)
-    setPendingPingCount(pingCount)
     setState(overlapResult.clusters.length > 0 || mutualMatches.length > 0 ? "has-overlaps" : "empty")
   }
 
@@ -136,9 +133,6 @@ export default function OverlapPage() {
 
     if (result.success) {
       setPingSuccess(true)
-      // Refresh ping count
-      const newCount = await getPendingPingCount(userId)
-      setPendingPingCount(newCount)
     } else {
       setPingError(result.error || "Failed to send ping")
     }
@@ -175,29 +169,11 @@ export default function OverlapPage() {
     <div className="min-h-screen bg-stone-50">
       <div className="max-w-lg mx-auto px-4 py-12">
         {/* Header */}
-        <div className="mb-8 flex items-start justify-between">
-          <div>
-            <p className="text-stone-400 text-sm">@{handle}</p>
-            <h1 className="text-2xl font-medium text-stone-900 tracking-tight mt-1">
-              Your overlap
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <a
-              href="/network"
-              className="px-3 py-1.5 bg-stone-100 text-stone-600 rounded-full text-xs font-medium hover:bg-stone-200 transition-all"
-            >
-              Network
-            </a>
-            {pendingPingCount > 0 && (
-              <a
-                href="/connections"
-                className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium"
-              >
-                {pendingPingCount} new {pendingPingCount === 1 ? "ping" : "pings"}
-              </a>
-            )}
-          </div>
+        <div className="mb-8">
+          <p className="text-stone-400 text-sm">@{handle}</p>
+          <h1 className="text-2xl font-medium text-stone-900 tracking-tight mt-1">
+            Your overlap
+          </h1>
         </div>
 
         {state === "empty" ? (

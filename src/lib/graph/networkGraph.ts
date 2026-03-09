@@ -46,7 +46,7 @@ export async function buildNetworkGraph(userId: string): Promise<NetworkGraph | 
     return null
   }
 
-  const myActivityIds = new Set(myInterests.map((i) => i.activity_id))
+  const myActivityIds = new Set<string>(myInterests.map((i: { activity_id: string }) => i.activity_id))
 
   // Get all other users with their profiles and interests
   const { data: allProfiles } = await supabase
@@ -69,7 +69,8 @@ export async function buildNetworkGraph(userId: string): Promise<NetworkGraph | 
   }
 
   // Filter to nearby users (within mutual radius)
-  const nearbyProfiles = allProfiles.filter((p) => {
+  type ProfileRow = { id: string; handle: string; lat: number | null; lng: number | null; radius_miles: number }
+  const nearbyProfiles = allProfiles.filter((p: ProfileRow) => {
     if (!p.lat || !p.lng) return false
     const distance = haversineDistance(myProfile.lat, myProfile.lng, p.lat, p.lng)
     return distance <= myProfile.radius_miles && distance <= p.radius_miles
@@ -90,7 +91,7 @@ export async function buildNetworkGraph(userId: string): Promise<NetworkGraph | 
   }
 
   // Get interests for all nearby users
-  const nearbyUserIds = nearbyProfiles.map((p) => p.id)
+  const nearbyUserIds = nearbyProfiles.map((p: ProfileRow) => p.id)
   const { data: allInterests } = await supabase
     .from("user_interests")
     .select("user_id, activity_id")
@@ -119,7 +120,7 @@ export async function buildNetworkGraph(userId: string): Promise<NetworkGraph | 
     .select("id, label")
     .in("id", Array.from(allActivityIds))
 
-  const activityLabels = new Map(activities?.map((a) => [a.id, a.label]) || [])
+  const activityLabels = new Map<string, string>(activities?.map((a: { id: string; label: string }) => [a.id, a.label]) || [])
 
   // Build edges: users connected by shared activities
   const edges: GraphEdge[] = []

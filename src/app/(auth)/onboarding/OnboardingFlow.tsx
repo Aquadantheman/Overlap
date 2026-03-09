@@ -24,7 +24,7 @@ export type OnboardingData = {
   phone: string
   zipCode: string
   neighborhood: string
-  radiusMiles: 1 | 2 | 5 | 10
+  radiusMiles: number
   comfortLevel: ComfortLevel
   interests: InterestSelection[]
 }
@@ -51,7 +51,7 @@ export default function OnboardingFlow() {
   useEffect(() => {
     // Session is stored in cookies by Supabase - just retrieve it
     const supabase = createClient()
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(({ data }: { data: { user: { id: string } | null } }) => {
       if (data?.user?.id) {
         setUserId(data.user.id)
       } else {

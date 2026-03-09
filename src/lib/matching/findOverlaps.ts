@@ -48,16 +48,18 @@ export async function findOverlaps(userId: string): Promise<OverlapResult | null
     return null
   }
 
+  // Only get active interests for the current user
   const { data: myInterests } = await supabase
     .from("user_interests")
     .select("activity_id")
     .eq("user_id", userId)
+    .eq("is_active", true)
 
   if (!myInterests || myInterests.length === 0) {
     return { clusters: [], totalNearby: 0 }
   }
 
-  const myActivityIds = myInterests.map((i) => i.activity_id)
+  const myActivityIds = myInterests.map((i: { activity_id: string }) => i.activity_id)
 
   // Get all other profiles with their interests
   // In production, you'd use PostGIS for efficient spatial queries
@@ -74,8 +76,9 @@ export async function findOverlaps(userId: string): Promise<OverlapResult | null
   }
 
   // Filter profiles within radius
+  type OtherProfile = { id: string; lat: number | null; lng: number | null }
   const nearbyProfileIds = otherProfiles
-    .filter((p) => {
+    .filter((p: OtherProfile) => {
       const distance = haversineDistance(
         profile.lat,
         profile.lng,
@@ -84,18 +87,19 @@ export async function findOverlaps(userId: string): Promise<OverlapResult | null
       )
       return distance <= profile.radius_miles
     })
-    .map((p) => p.id)
+    .map((p: OtherProfile) => p.id)
 
   if (nearbyProfileIds.length === 0) {
     return { clusters: [], totalNearby: 0 }
   }
 
-  // Get interests of nearby users that match our activities
+  // Get active interests of nearby users that match our activities
   const { data: nearbyInterests } = await supabase
     .from("user_interests")
-    .select("user_id, activity_id, created_at")
+    .select("user_id, activity_id, last_engaged_at")
     .in("user_id", nearbyProfileIds)
     .in("activity_id", myActivityIds)
+    .eq("is_active", true)
 
   if (!nearbyInterests || nearbyInterests.length === 0) {
     return { clusters: [], totalNearby: nearbyProfileIds.length }
@@ -124,14 +128,15 @@ export async function findOverlaps(userId: string): Promise<OverlapResult | null
     const cluster = clusterMap.get(interest.activity_id)!
     cluster.userIds.add(interest.user_id)
 
-    // Check if active this week (using created_at as proxy for last_active_at for now)
-    if (interest.created_at && new Date(interest.created_at) > oneWeekAgo) {
+    // Check if active this week based on last_engaged_at
+    if (interest.last_engaged_at && new Date(interest.last_engaged_at) > oneWeekAgo) {
       cluster.activeUserIds.add(interest.user_id)
     }
   }
 
+  type ActivityRow = { id: string; label: string; verb: string; category: string }
   const clusters: OverlapCluster[] = activities
-    .map((activity) => {
+    .map((activity: ActivityRow) => {
       const cluster = clusterMap.get(activity.id)
       if (!cluster || cluster.userIds.size === 0) return null
 
@@ -144,11 +149,11 @@ export async function findOverlaps(userId: string): Promise<OverlapResult | null
         activeThisWeek: cluster.activeUserIds.size,
       }
     })
-    .filter((c): c is OverlapCluster => c !== null)
-    .sort((a, b) => b.count - a.count) // Most overlaps first
+    .filter((c: OverlapCluster | null): c is OverlapCluster => c !== null)
+    .sort((a: OverlapCluster, b: OverlapCluster) => b.count - a.count) // Most overlaps first
 
   // Count unique nearby users with at least one shared interest
-  const uniqueNearbyWithOverlap = new Set(nearbyInterests.map((i) => i.user_id)).size
+  const uniqueNearbyWithOverlap = new Set(nearbyInterests.map((i: { user_id: string }) => i.user_id)).size
 
   return {
     clusters,

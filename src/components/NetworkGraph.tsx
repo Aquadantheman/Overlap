@@ -20,12 +20,13 @@ type Props = {
   onNodeClick?: (node: GraphNode) => void
 }
 
-// Physics constants
-const REPULSION = 800
-const ATTRACTION = 0.03
-const DAMPING = 0.85
-const CENTER_GRAVITY = 0.01
-const MIN_DISTANCE = 60
+// Physics constants - tuned for stability with small graphs
+const REPULSION = 400
+const ATTRACTION = 0.08
+const DAMPING = 0.7
+const CENTER_GRAVITY = 0.02
+const TARGET_DISTANCE = 120 // ideal distance between connected nodes
+const VELOCITY_THRESHOLD = 0.1 // stop sim when movement is minimal
 
 export default function NetworkGraph({ data, width = 600, height = 500, onNodeClick }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
@@ -71,6 +72,8 @@ export default function NetworkGraph({ data, width = 600, height = 500, onNodeCl
       const centerX = width / 2
       const centerY = height / 2
 
+      let totalVelocity = 0
+
       // Apply forces
       for (let i = 0; i < newNodes.length; i++) {
         const node = newNodes[i]
@@ -92,12 +95,13 @@ export default function NetworkGraph({ data, width = 600, height = 500, onNodeCl
           const dx = node.x - other.x
           const dy = node.y - other.y
           const dist = Math.sqrt(dx * dx + dy * dy) || 1
-          const force = REPULSION / (dist * dist)
+          // Softer repulsion that scales with graph size
+          const force = REPULSION / (dist * dist + 100)
           fx += (dx / dist) * force
           fy += (dy / dist) * force
         }
 
-        // Attraction along edges
+        // Attraction along edges - spring force toward target distance
         for (const edge of edges) {
           let other: SimNode | undefined
           if (edge.source === node.id) {
@@ -110,12 +114,11 @@ export default function NetworkGraph({ data, width = 600, height = 500, onNodeCl
             const dx = other.x - node.x
             const dy = other.y - node.y
             const dist = Math.sqrt(dx * dx + dy * dy) || 1
-            // Stronger attraction for more shared activities
-            const strength = ATTRACTION * edge.weight
-            if (dist > MIN_DISTANCE) {
-              fx += dx * strength
-              fy += dy * strength
-            }
+            // Spring force: pull toward target distance
+            const displacement = dist - TARGET_DISTANCE
+            const strength = ATTRACTION * Math.min(edge.weight, 3)
+            fx += (dx / dist) * displacement * strength
+            fy += (dy / dist) * displacement * strength
           }
         }
 
@@ -128,12 +131,14 @@ export default function NetworkGraph({ data, width = 600, height = 500, onNodeCl
         node.vy = (node.vy + fy) * DAMPING
 
         // Clamp velocity
-        const maxVel = 10
+        const maxVel = 8
         const vel = Math.sqrt(node.vx * node.vx + node.vy * node.vy)
         if (vel > maxVel) {
           node.vx = (node.vx / vel) * maxVel
           node.vy = (node.vy / vel) * maxVel
         }
+
+        totalVelocity += vel
 
         // Update position
         node.x += node.vx

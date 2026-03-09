@@ -109,6 +109,13 @@ export async function sendPing(
     return { success: false, error: error.message }
   }
 
+  // Update last_engaged_at for this interest (tracks activity for decay)
+  await supabase
+    .from("user_interests")
+    .update({ last_engaged_at: new Date().toISOString() })
+    .eq("user_id", senderId)
+    .eq("activity_id", activityId)
+
   return { success: true, pingId: data.id }
 }
 
@@ -143,7 +150,8 @@ export async function getSentPings(userId: string): Promise<SoftPing[]> {
     .eq("id", userId)
     .single()
 
-  return data.map((p) => ({
+  type PingRow = typeof data[number]
+  return data.map((p: PingRow) => ({
     id: p.id,
     senderId: p.sender_id,
     senderHandle: profile?.handle || "",
@@ -191,7 +199,8 @@ export async function getReceivedPings(userId: string): Promise<SoftPing[]> {
     .eq("id", userId)
     .single()
 
-  return data.map((p) => ({
+  type ReceivedPingRow = typeof data[number]
+  return data.map((p: ReceivedPingRow) => ({
     id: p.id,
     senderId: p.sender_id,
     senderHandle: (p.sender as { handle: string })?.handle || "",

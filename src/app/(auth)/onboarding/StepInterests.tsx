@@ -70,7 +70,7 @@ export default function StepInterests({
       .eq("status", "active")
       .order("tier")
       .order("label")
-      .then(({ data, error }) => {
+      .then(({ data, error }: { data: Activity[] | null; error: { message: string } | null }) => {
         if (error) setError(error.message)
         if (data) setActivities(data)
         setLoading(false)

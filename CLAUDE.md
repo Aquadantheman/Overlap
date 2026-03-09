@@ -19,6 +19,7 @@ Read `OVERLAP_FEATURE_DESIGN.md` before building any user-facing feature.
 - **Supabase** - PostgreSQL + Auth
 - **Vercel** deployment
 - **Local path:** `C:\Users\Linde\Dev\overlap`
+- **GitHub:** https://github.com/Aquadantheman/Overlap
 
 ---
 
@@ -33,6 +34,7 @@ Export must be named `proxy`, NOT `middleware`.
 
 - URL: `https://fclycscjzdfddzncvasn.supabase.co`
 - Anon key: in `.env.local` as `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- Client uses `@supabase/ssr` with `createBrowserClient` for proper cookie sessions
 
 ---
 
@@ -46,60 +48,69 @@ Export must be named `proxy`, NOT `middleware`.
 
 ## Current State
 
-### Done
-- Next.js 16 scaffolded with TypeScript + Tailwind
-- Supabase schema: `profiles`, `activities`, `user_interests`, `me_too_signals`
-- RLS policies on all tables
-- 37 activities seeded (tier 1 + tier 2)
-- Signin/signup page with email/password
-- Route protection via `src/proxy.ts`
-- **Full onboarding flow:**
-  - Step 1: Handle + phone number (hashed)
-  - Step 2: Location (zip, neighborhood, radius) + comfort level (open/group_only)
-  - Step 3: Interests with frequency/level per activity (max 7)
+### Complete
+- **Auth:** Email/password signin/signup, route protection via `src/proxy.ts`
+- **Onboarding (3 steps):**
+  - Handle + phone number (hashed)
+  - Location (zip, neighborhood, radius 1-15mi slider) + comfort level
+  - Interests with frequency/level per activity (max 7)
   - Geocoding via zippopotam.us API
-  - Saves to DB on completion
 - **Overlap view:**
-  - Shows clusters ("3 people also forage")
-  - Shows recency ("2 active this week")
-  - "Me too" signal button on each cluster
-  - Mutual matches section when both parties have signaled
-- **Me too mechanic:**
-  - Tap to signal interest in an activity cluster
-  - Neither party knows until both have tapped
-  - Simultaneous reveal when mutual
-  - Unlocks ability to send ping (not yet implemented)
+  - Activity clusters ("3 people also forage")
+  - Recency signals ("2 active this week")
+  - "Me too" button per cluster
+  - Mutual matches section (simultaneous reveal)
+- **Soft ping system:**
+  - Activity-framed pings with timeframe
+  - 140 char message limit, no links
+  - 5 pending ping cap
+  - Accept/decline flow
+- **Connections:**
+  - Created when ping is accepted
+  - Tracks shared activities
+- **Settings page:**
+  - Neighborhood, radius slider, comfort level
+  - Interest management (Active/Quiet toggle, edit, replace)
+- **Network graph:**
+  - Force-directed visualization of connections
+  - Physics-tuned for small graphs
+- **Interest decay system:**
+  - `is_active` flag (Active vs Quiet interests)
+  - `last_engaged_at` updated on me-too signals and pings
+  - Only active interests participate in matching
 
-### Next Tasks
-1. Soft ping system - templated activity-framed messages
-2. Connections flow - mutual opt-in to connect
-3. Meetups - group-first meeting proposals
-4. Trust signals - post-meetup feedback
-5. Settings page - edit profile, change interests
+### Not Yet Built
+1. **Meetups** - Group proposals, scheduling, completion tracking
+2. **Trust signals** - Post-meetup feedback (requires meetups)
+3. **Group-first unlock** - 1-on-1 only after `group_meetup_completed = true`
+4. **Notifications** - Real-time updates for pings, matches
+5. **Scene growth data** - "This number went from 8 to 14"
 
 ---
 
 ## DB Schema
 
 ```sql
--- Core tables
+-- Core tables (all exist)
 profiles          id, handle, phone_hash, zip_code, neighborhood,
-                  radius_miles, lat, lng, comfort_level
+                  radius_miles (1-15), lat, lng, comfort_level
 
 activities        id, label, verb, category, parent_id, tier, status
 
-user_interests    user_id, activity_id, frequency, level, created_at
+user_interests    user_id, activity_id, frequency, level,
+                  is_active (bool), last_engaged_at, created_at
 
 me_too_signals    user_id, activity_id, created_at
                   UNIQUE(user_id, activity_id)
 
--- Future tables (designed, not yet needed)
+soft_pings        sender_id, receiver_id, activity_id, timeframe,
+                  message (140 char max, no links), status,
+                  created_at, responded_at
+
 connections       initiator_id, receiver_id, shared_activity_ids[],
-                  status, group_meetup_completed
+                  status, connected_at
 
-soft_pings        sender_id, receiver_id, message (140 char max),
-                  activity_context_id, template_used
-
+-- Future tables (not yet created)
 meetups           proposer_id, connection_id, neighborhood,
                   venue_type (public only), min_attendees, status
 
@@ -107,50 +118,16 @@ trust_signals     from_user_id, to_user_id, signal_type (positive/silent),
                   surfaced_after_meetup_id (required)
 ```
 
-### Required Schema Additions
-Run these in Supabase SQL editor:
-
-```sql
--- Add columns to profiles
-ALTER TABLE profiles
-ADD COLUMN IF NOT EXISTS lat double precision,
-ADD COLUMN IF NOT EXISTS lng double precision,
-ADD COLUMN IF NOT EXISTS phone_hash text,
-ADD COLUMN IF NOT EXISTS comfort_level text DEFAULT 'open';
-
--- Add columns to user_interests
-ALTER TABLE user_interests
-ADD COLUMN IF NOT EXISTS frequency text,
-ADD COLUMN IF NOT EXISTS level text;
-
--- Create me_too_signals table
-CREATE TABLE IF NOT EXISTS me_too_signals (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid REFERENCES auth.users NOT NULL,
-  activity_id uuid REFERENCES activities NOT NULL,
-  created_at timestamptz DEFAULT now(),
-  UNIQUE(user_id, activity_id)
-);
-
--- RLS for me_too_signals
-ALTER TABLE me_too_signals ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can manage own signals" ON me_too_signals
-  FOR ALL USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can read signals for matching" ON me_too_signals
-  FOR SELECT USING (true);
-```
-
 ---
 
 ## Feature Rules (enforce in all code)
 
 - Interest cap: **7 max per user** (enforced in UI)
+- Active interests only participate in matching (Quiet interests are paused)
 - Meetup proposals require **minimum 3 people** in overlap
 - **Group-first:** one-on-one only unlocks after `group_meetup_completed = true`
 - Soft pings are **activity-framed** - tied to activity, not a blank message
-- Active pending pings are **capped** (target: 5-7 max)
+- Active pending pings are **capped at 5**
 - Trust signals require `surfaced_after_meetup_id` - invalid without a real meetup
 - Meetup venues: **public only** - no address field exists anywhere
 - Overlap view: **never show individual profiles** - clusters only
@@ -165,7 +142,7 @@ CREATE POLICY "Users can read signals for matching" ON me_too_signals
 - No free-form DMs until mutual opt-in
 - Trust signals: positive or silent only, never public
 - No engagement metrics, no compatibility scores, no sorting by personal attributes
-- Soft pings: 140 char max, no links
+- Soft pings: 140 char max, no links (validated in code)
 - The "me too" signal is simultaneous reveal - neither party sees the other tapped until both have
 
 ---
@@ -179,18 +156,25 @@ src/
       onboarding/          OnboardingFlow.tsx, StepHandle, StepLocation, StepInterests
       signin/              Email/password auth
     (main)/
-      overlap/             Overlap view with me-too signals
-      connections/         (empty - not yet built)
-      settings/            (empty - not yet built)
+      overlap/             Overlap view with me-too signals and pings
+      network/             Force-directed connection graph
+      settings/            Profile settings + InterestManager
+  components/
+    InterestManager.tsx    Active/Quiet toggle, edit, replace interests
+    NetworkGraph.tsx       Force-directed graph visualization
   lib/
     supabase/
-      client.ts            Singleton browser client
-      server.ts            SSR client via @supabase/ssr
+      client.ts            Singleton browser client (@supabase/ssr)
+      server.ts            SSR client
     geo/
       geocode.ts           Zip code to lat/lng via zippopotam.us
     matching/
       findOverlaps.ts      Haversine distance + shared activity matching
       meToo.ts             Signal/remove/find mutual matches
+    pings/
+      softPing.ts          Send, receive, respond to pings
+    graph/
+      networkGraph.ts      Build graph data from connections
     utils.ts               cn() helper + phone hashing
   types/index.ts           Shared type definitions
   proxy.ts                 Route protection middleware
