@@ -1,8 +1,11 @@
 import { createClient } from "@/lib/supabase/client"
 
+export type ComfortLevel = "group_only" | "open"
+
 export type MutualMatch = {
   otherUserId: string
   otherHandle: string
+  otherComfortLevel: ComfortLevel
   activityId: string
   activityLabel: string
   activityVerb: string
@@ -117,7 +120,7 @@ export async function findMutuals(userId: string): Promise<MutualMatch[]> {
 
   const { data: otherProfiles } = await supabase
     .from("profiles")
-    .select("id, handle, lat, lng, radius_miles")
+    .select("id, handle, lat, lng, radius_miles, comfort_level")
     .in("id", otherUserIds)
 
   if (!otherProfiles) {
@@ -125,7 +128,7 @@ export async function findMutuals(userId: string): Promise<MutualMatch[]> {
   }
 
   // Filter by distance (must be within BOTH users' radii)
-  type OtherProfile = { id: string; handle: string; lat: number | null; lng: number | null; radius_miles: number }
+  type OtherProfile = { id: string; handle: string; lat: number | null; lng: number | null; radius_miles: number; comfort_level: string | null }
   const nearbyProfiles = otherProfiles.filter((p: OtherProfile) => {
     if (!p.lat || !p.lng) return false
     const distance = haversineDistance(myProfile.lat, myProfile.lng, p.lat, p.lng)
@@ -162,6 +165,7 @@ export async function findMutuals(userId: string): Promise<MutualMatch[]> {
     mutuals.push({
       otherUserId: signal.user_id,
       otherHandle: profile.handle,
+      otherComfortLevel: (profile.comfort_level as ComfortLevel) || "open",
       activityId: signal.activity_id,
       activityLabel: activity.label,
       activityVerb: activity.verb,

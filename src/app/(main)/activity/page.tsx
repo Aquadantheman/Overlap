@@ -49,6 +49,12 @@ const TIME_LABELS: Record<string, string> = {
   flexible: "Flexible",
 }
 
+type ConfirmAction = {
+  type: "decline_ping" | "decline_meetup" | "cancel_meetup"
+  id: string
+  label: string
+}
+
 export default function ActivityPage() {
   const [loading, setLoading] = useState(true)
   const [userId, setUserId] = useState<string>("")
@@ -69,6 +75,9 @@ export default function ActivityPage() {
   const [invitedMeetups, setInvitedMeetups] = useState<Meetup[]>([])
   const [respondingMeetup, setRespondingMeetup] = useState<string | null>(null)
   const [actioningMeetup, setActioningMeetup] = useState<string | null>(null)
+
+  // Confirmation dialog state
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
 
   const loadData = async () => {
     const supabase = createClient()
@@ -191,6 +200,20 @@ export default function ActivityPage() {
     setActioningMeetup(null)
   }
 
+  const handleConfirmAction = async () => {
+    if (!confirmAction) return
+
+    if (confirmAction.type === "decline_ping") {
+      await handleRespondPing(confirmAction.id, false)
+    } else if (confirmAction.type === "decline_meetup") {
+      await handleRespondMeetup(confirmAction.id, false)
+    } else if (confirmAction.type === "cancel_meetup") {
+      await handleCancelMeetup(confirmAction.id)
+    }
+
+    setConfirmAction(null)
+  }
+
   // Badge counts
   const pendingPings = receivedPings.filter((p) => p.status === "pending").length
   const pendingMeetups = invitedMeetups.filter(
@@ -256,13 +279,15 @@ export default function ActivityPage() {
             received={receivedPings}
             sent={sentPings}
             responding={respondingPing}
-            onRespond={handleRespondPing}
+            onAccept={(pingId) => handleRespondPing(pingId, true)}
+            onDecline={(pingId, label) => setConfirmAction({ type: "decline_ping", id: pingId, label })}
           />
         )}
 
         {activeTab === "connections" && (
           <ConnectionsTab
             connections={connections}
+            sentPings={sentPings}
             onProposeMeetup={(conn) => {
               setSelectedConnection(conn)
               setMeetupModalOpen(true)
@@ -277,9 +302,10 @@ export default function ActivityPage() {
             userId={userId}
             respondingMeetup={respondingMeetup}
             actioningMeetup={actioningMeetup}
-            onRespond={handleRespondMeetup}
+            onAccept={(meetupId) => handleRespondMeetup(meetupId, true)}
+            onDecline={(meetupId, label) => setConfirmAction({ type: "decline_meetup", id: meetupId, label })}
             onComplete={handleCompleteMeetup}
-            onCancel={handleCancelMeetup}
+            onCancel={(meetupId, label) => setConfirmAction({ type: "cancel_meetup", id: meetupId, label })}
           />
         )}
       </div>
@@ -302,6 +328,31 @@ export default function ActivityPage() {
           onSuccess={loadData}
         />
       )}
+
+      {/* Confirm Dialog */}
+      {confirmAction && (
+        <ConfirmDialog
+          title={
+            confirmAction.type === "decline_ping"
+              ? "Decline this ping?"
+              : confirmAction.type === "decline_meetup"
+              ? "Decline this invitation?"
+              : "Cancel this meetup?"
+          }
+          message={
+            confirmAction.type === "decline_ping"
+              ? `@${confirmAction.label} won't be able to connect with you for this activity.`
+              : confirmAction.type === "decline_meetup"
+              ? `You'll decline the invitation to ${confirmAction.label}.`
+              : `All participants will be notified that ${confirmAction.label} has been cancelled.`
+          }
+          confirmLabel={
+            confirmAction.type === "cancel_meetup" ? "Cancel meetup" : "Decline"
+          }
+          onConfirm={handleConfirmAction}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
     </div>
   )
 }
@@ -312,12 +363,14 @@ function PingsTab({
   received,
   sent,
   responding,
-  onRespond,
+  onAccept,
+  onDecline,
 }: {
   received: SoftPing[]
   sent: SoftPing[]
   responding: string | null
-  onRespond: (pingId: string, accept: boolean) => void
+  onAccept: (pingId: string) => void
+  onDecline: (pingId: string, senderHandle: string) => void
 }) {
   const pendingReceived = received.filter((p) => p.status === "pending")
   const historyReceived = received.filter((p) => p.status !== "pending")
@@ -326,10 +379,15 @@ function PingsTab({
 
   if (received.length === 0 && sent.length === 0) {
     return (
-      <div className="bg-white border border-stone-200 rounded-2xl p-8 text-center">
-        <p className="text-stone-500 text-sm">No pings yet.</p>
-        <p className="text-stone-400 text-xs mt-2">
-          When you find a mutual match, you can send them a ping.
+      <div className="bg-white border border-stone-200 rounded-2xl p-6 text-center">
+        <div className="w-10 h-10 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-3">
+          <svg className="w-5 h-5 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+        </div>
+        <p className="text-stone-900 font-medium text-sm">No pings yet</p>
+        <p className="text-stone-400 text-xs mt-2 max-w-xs mx-auto">
+          When you match with someone on Overlap, you can send each other pings to connect.
         </p>
       </div>
     )
@@ -345,7 +403,8 @@ function PingsTab({
               ping={ping}
               type="received"
               responding={responding === ping.id}
-              onRespond={onRespond}
+              onAccept={onAccept}
+              onDecline={onDecline}
             />
           ))}
         </Section>
@@ -377,48 +436,95 @@ function PingsTab({
 
 function ConnectionsTab({
   connections,
+  sentPings,
   onProposeMeetup,
 }: {
   connections: Connection[]
+  sentPings: SoftPing[]
   onProposeMeetup: (conn: Connection) => void
 }) {
+  // Get pending sent pings count
+  const pendingSentPings = sentPings.filter(p => p.status === "pending").length
+
+  // Build a map of pending pings by receiver
+  const pendingPingsByReceiver = new Map<string, SoftPing>()
+  sentPings
+    .filter(p => p.status === "pending")
+    .forEach(p => pendingPingsByReceiver.set(p.receiverId, p))
+
   if (connections.length === 0) {
     return (
-      <div className="bg-white border border-stone-200 rounded-2xl p-8 text-center">
-        <p className="text-stone-500 text-sm">No connections yet.</p>
-        <p className="text-stone-400 text-xs mt-2">
-          When someone accepts your ping (or you accept theirs), you'll be connected.
-        </p>
+      <div className="flex flex-col gap-4">
+        {pendingSentPings > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3">
+            <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+              <span className="text-amber-700 text-sm font-medium">{pendingSentPings}</span>
+            </div>
+            <p className="text-amber-700 text-sm">
+              {pendingSentPings === 1 ? "1 ping" : `${pendingSentPings} pings`} awaiting response
+            </p>
+          </div>
+        )}
+        <div className="bg-white border border-stone-200 rounded-2xl p-6 text-center">
+          <div className="w-10 h-10 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <svg className="w-5 h-5 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+          </div>
+          <p className="text-stone-900 font-medium text-sm">No connections yet</p>
+          <p className="text-stone-400 text-xs mt-2 max-w-xs mx-auto">
+            Accept a ping to connect with someone who shares your interests.
+          </p>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-3">
-      {connections.map((conn) => (
-        <div
-          key={conn.id}
-          className="bg-white border border-stone-200 rounded-2xl p-5"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-stone-900 font-medium">@{conn.otherHandle}</p>
-              <p className="text-stone-400 text-sm mt-0.5">
-                {conn.sharedActivities.map((a) => a.label).join(", ")}
-              </p>
-              <p className="text-stone-300 text-xs mt-2">
-                Connected {formatRelativeTime(conn.connectedAt)}
-              </p>
+      {connections.map((conn) => {
+        const pendingPing = pendingPingsByReceiver.get(conn.otherUserId)
+        return (
+          <div
+            key={conn.id}
+            className={cn(
+              "border rounded-2xl p-5",
+              pendingPing ? "bg-amber-50/50 border-amber-200" : "bg-white border-stone-200"
+            )}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-stone-900 font-medium">@{conn.otherHandle}</p>
+                  {pendingPing && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+                      Ping sent
+                    </span>
+                  )}
+                </div>
+                <p className="text-stone-400 text-sm mt-0.5">
+                  {conn.sharedActivities.map((a) => a.label).join(", ")}
+                </p>
+                {pendingPing ? (
+                  <p className="text-amber-600 text-xs mt-2">
+                    Waiting for response • {formatRelativeTime(pendingPing.createdAt)}
+                  </p>
+                ) : (
+                  <p className="text-stone-300 text-xs mt-2">
+                    Connected {formatRelativeTime(conn.connectedAt)}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => onProposeMeetup(conn)}
+                className="px-4 py-2 bg-stone-900 text-white text-sm font-medium rounded-xl hover:bg-stone-700 transition-all whitespace-nowrap"
+              >
+                Propose meetup
+              </button>
             </div>
-            <button
-              onClick={() => onProposeMeetup(conn)}
-              className="px-4 py-2 bg-stone-900 text-white text-sm font-medium rounded-xl hover:bg-stone-700 transition-all whitespace-nowrap"
-            >
-              Propose meetup
-            </button>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -431,7 +537,8 @@ function MeetupsTab({
   userId,
   respondingMeetup,
   actioningMeetup,
-  onRespond,
+  onAccept,
+  onDecline,
   onComplete,
   onCancel,
 }: {
@@ -440,9 +547,10 @@ function MeetupsTab({
   userId: string
   respondingMeetup: string | null
   actioningMeetup: string | null
-  onRespond: (meetupId: string, accept: boolean) => void
+  onAccept: (meetupId: string) => void
+  onDecline: (meetupId: string, activityLabel: string) => void
   onComplete: (meetupId: string) => void
-  onCancel: (meetupId: string) => void
+  onCancel: (meetupId: string, activityLabel: string) => void
 }) {
   const pendingInvites = invited.filter(
     (m) => m.status === "proposed" && m.participants.find((p) => p.userId === userId)?.status === "invited"
@@ -455,10 +563,15 @@ function MeetupsTab({
 
   if (proposed.length === 0 && invited.length === 0) {
     return (
-      <div className="bg-white border border-stone-200 rounded-2xl p-8 text-center">
-        <p className="text-stone-500 text-sm">No meetups yet.</p>
-        <p className="text-stone-400 text-xs mt-2">
-          Go to Connections to propose a meetup with someone.
+      <div className="bg-white border border-stone-200 rounded-2xl p-6 text-center">
+        <div className="w-10 h-10 bg-stone-100 rounded-full flex items-center justify-center mx-auto mb-3">
+          <svg className="w-5 h-5 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <p className="text-stone-900 font-medium text-sm">No meetups yet</p>
+        <p className="text-stone-400 text-xs mt-2 max-w-xs mx-auto">
+          Once you're connected, propose a meetup to do something together.
         </p>
       </div>
     )
@@ -475,7 +588,8 @@ function MeetupsTab({
               type="invited"
               userId={userId}
               responding={respondingMeetup === meetup.id}
-              onRespond={onRespond}
+              onAccept={onAccept}
+              onDecline={onDecline}
             />
           ))}
         </Section>
@@ -525,12 +639,14 @@ function PingCard({
   ping,
   type,
   responding,
-  onRespond,
+  onAccept,
+  onDecline,
 }: {
   ping: SoftPing
   type: "sent" | "received"
   responding?: boolean
-  onRespond?: (pingId: string, accept: boolean) => void
+  onAccept?: (pingId: string) => void
+  onDecline?: (pingId: string, senderHandle: string) => void
 }) {
   const isPending = ping.status === "pending"
   const otherHandle = type === "sent" ? ping.receiverHandle : ping.senderHandle
@@ -538,14 +654,21 @@ function PingCard({
   return (
     <div
       className={cn(
-        "bg-white border rounded-2xl p-5",
-        isPending && type === "received" ? "border-emerald-200" : "border-stone-200"
+        "border rounded-2xl p-5",
+        isPending && type === "received"
+          ? "border-2 border-emerald-400 bg-emerald-50/50"
+          : "bg-white border-stone-200"
       )}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <p className="text-stone-900 font-medium">@{otherHandle}</p>
+            {isPending && type === "received" && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-600 text-white uppercase tracking-wide">
+                New
+              </span>
+            )}
             {!isPending && (
               <span
                 className={cn(
@@ -580,17 +703,17 @@ function PingCard({
         </div>
       </div>
 
-      {isPending && type === "received" && onRespond && (
+      {isPending && type === "received" && onAccept && onDecline && (
         <div className="mt-4 pt-4 border-t border-stone-100 flex gap-3">
           <button
-            onClick={() => onRespond(ping.id, false)}
+            onClick={() => onDecline(ping.id, ping.senderHandle)}
             disabled={responding}
             className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-stone-200 text-stone-500 hover:border-stone-400 transition-all disabled:opacity-50"
           >
             Decline
           </button>
           <button
-            onClick={() => onRespond(ping.id, true)}
+            onClick={() => onAccept(ping.id)}
             disabled={responding}
             className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-stone-900 text-white hover:bg-stone-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
@@ -612,7 +735,8 @@ function MeetupCard({
   userId,
   responding,
   actioning,
-  onRespond,
+  onAccept,
+  onDecline,
   onComplete,
   onCancel,
 }: {
@@ -621,9 +745,10 @@ function MeetupCard({
   userId: string
   responding?: boolean
   actioning?: boolean
-  onRespond?: (meetupId: string, accept: boolean) => void
+  onAccept?: (meetupId: string) => void
+  onDecline?: (meetupId: string, activityLabel: string) => void
   onComplete?: (meetupId: string) => void
-  onCancel?: (meetupId: string) => void
+  onCancel?: (meetupId: string, activityLabel: string) => void
 }) {
   const myParticipation = meetup.participants.find((p) => p.userId === userId)
   const isPendingResponse = type === "invited" && meetup.status === "proposed" && myParticipation?.status === "invited"
@@ -632,14 +757,21 @@ function MeetupCard({
   return (
     <div
       className={cn(
-        "bg-white border rounded-2xl p-5",
-        isPendingResponse ? "border-emerald-200" : "border-stone-200"
+        "border rounded-2xl p-5",
+        isPendingResponse
+          ? "border-2 border-emerald-400 bg-emerald-50/50"
+          : "bg-white border-stone-200"
       )}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-stone-900 font-medium">{meetup.activityLabel}</p>
+            {isPendingResponse && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-600 text-white uppercase tracking-wide">
+                New
+              </span>
+            )}
             <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-stone-100 text-stone-600">
               {meetup.meetupType === "group" ? "Group" : "1-on-1"}
             </span>
@@ -682,17 +814,17 @@ function MeetupCard({
         </div>
       </div>
 
-      {isPendingResponse && onRespond && (
+      {isPendingResponse && onAccept && onDecline && (
         <div className="mt-4 pt-4 border-t border-stone-100 flex gap-3">
           <button
-            onClick={() => onRespond(meetup.id, false)}
+            onClick={() => onDecline(meetup.id, meetup.activityLabel)}
             disabled={responding}
             className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-stone-200 text-stone-500 hover:border-stone-400 transition-all disabled:opacity-50"
           >
             Decline
           </button>
           <button
-            onClick={() => onRespond(meetup.id, true)}
+            onClick={() => onAccept(meetup.id)}
             disabled={responding}
             className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-stone-900 text-white hover:bg-stone-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
@@ -708,7 +840,7 @@ function MeetupCard({
       {type === "proposed" && meetup.status === "confirmed" && onComplete && onCancel && (
         <div className="mt-4 pt-4 border-t border-stone-100 flex gap-3">
           <button
-            onClick={() => onCancel(meetup.id)}
+            onClick={() => onCancel(meetup.id, meetup.activityLabel)}
             disabled={actioning}
             className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-stone-200 text-stone-500 hover:border-stone-400 transition-all disabled:opacity-50"
           >
@@ -727,7 +859,7 @@ function MeetupCard({
       {type === "proposed" && meetup.status === "proposed" && onCancel && (
         <div className="mt-4 pt-4 border-t border-stone-100">
           <button
-            onClick={() => onCancel(meetup.id)}
+            onClick={() => onCancel(meetup.id, meetup.activityLabel)}
             disabled={actioning}
             className="w-full py-2.5 rounded-xl text-sm font-medium border border-stone-200 text-stone-500 hover:border-stone-400 transition-all disabled:opacity-50"
           >
@@ -753,4 +885,48 @@ function formatRelativeTime(dateString: string): string {
   if (diffDays < 7) return `${diffDays}d ago`
 
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
+// ============ CONFIRM DIALOG ============
+
+function ConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+}: {
+  title: string
+  message: string
+  confirmLabel: string
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel()
+      }}
+    >
+      <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
+        <h3 className="text-lg font-medium text-stone-900">{title}</h3>
+        <p className="mt-2 text-stone-500 text-sm">{message}</p>
+        <div className="mt-6 flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-stone-200 text-stone-500 hover:border-stone-400 transition-all"
+          >
+            Go back
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-red-600 text-white hover:bg-red-500 transition-all"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }

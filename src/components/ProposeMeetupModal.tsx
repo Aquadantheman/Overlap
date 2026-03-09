@@ -127,7 +127,7 @@ export default function ProposeMeetupModal({
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50"
-        onClick={onClose}
+        onClick={() => !submitting && !checkingDensity && onClose()}
       />
 
       {/* Modal */}
@@ -249,6 +249,15 @@ export default function ProposeMeetupModal({
                         <p className="text-xs text-stone-400 mt-2">
                           Only 2 people nearby share this interest — one-on-one is the way to go
                         </p>
+                      )}
+
+                      {/* Explain 1-on-1 unlock requirement */}
+                      {densityCheck.canGroup && !densityCheck.canOneOnOne && (
+                        <div className="mt-3 px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg">
+                          <p className="text-xs text-amber-700">
+                            <span className="font-medium">Why no 1-on-1?</span> Complete a group meetup with @{connection.otherHandle} first to unlock 1-on-1 meetups. This helps build trust.
+                          </p>
+                        </div>
                       )}
                     </div>
                   )}

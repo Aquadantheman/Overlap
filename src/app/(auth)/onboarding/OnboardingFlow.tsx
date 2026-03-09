@@ -9,14 +9,14 @@ import StepHandle from "./StepHandle"
 import StepLocation from "./StepLocation"
 import StepInterests from "./StepInterests"
 
-export type Frequency = "yearly" | "monthly" | "weekly"
-export type Level = "beginner" | "casual" | "experienced"
+export type Commitment = "casual" | "regular" | "dedicated"
+export type Level = "beginner" | "intermediate" | "experienced"
 export type ComfortLevel = "group_only" | "open"
 
 export type InterestSelection = {
   activityId: string
-  frequency: Frequency
-  level: Level
+  commitment: Commitment
+  level: Level | null  // null for activities without has_level
 }
 
 export type OnboardingData = {
@@ -29,7 +29,7 @@ export type OnboardingData = {
   interests: InterestSelection[]
 }
 
-const STEPS = ["handle", "location", "interests"] as const
+const STEPS = ["handle", "location", "interests", "success"] as const
 type Step = typeof STEPS[number]
 
 export default function OnboardingFlow() {
@@ -64,8 +64,9 @@ export default function OnboardingFlow() {
   const update = (patch: Partial<OnboardingData>) =>
     setData((prev) => ({ ...prev, ...patch }))
 
-  const stepIndex = STEPS.indexOf(step)
-  const progress = ((stepIndex + 1) / STEPS.length) * 100
+  const mainSteps = ["handle", "location", "interests"] as const
+  const stepIndex = mainSteps.indexOf(step as typeof mainSteps[number])
+  const progress = step === "success" ? 100 : ((stepIndex + 1) / mainSteps.length) * 100
 
   const handleComplete = async () => {
     setSaving(true)
@@ -93,7 +94,8 @@ export default function OnboardingFlow() {
     // Geocode the zip code to get coordinates for matching
     const geo = await geocodeZip(data.zipCode)
     if (!geo) {
-      setError("Could not find that zip code. Please check and try again.")
+      setError(`We couldn't locate zip code "${data.zipCode}". Please double-check the number and try again.`)
+      setStep("location") // Go back to location step
       setSaving(false)
       return
     }
@@ -117,9 +119,10 @@ export default function OnboardingFlow() {
 
     if (profileError) {
       if (profileError.code === "23505") {
-        setError("That handle is already taken. Try another.")
+        setError(`The handle "@${data.handle}" is already taken. Please choose a different one.`)
+        setStep("handle") // Go back to handle step
       } else {
-        setError(profileError.message)
+        setError(`Something went wrong: ${profileError.message}. Please try again.`)
       }
       setSaving(false)
       return
@@ -128,8 +131,8 @@ export default function OnboardingFlow() {
     const interests = data.interests.map((interest) => ({
       user_id: userId,
       activity_id: interest.activityId,
-      frequency: interest.frequency,
-      level: interest.level,
+      commitment: interest.commitment,
+      level: interest.level,  // null for activities without has_level
     }))
 
     const { error: interestsError } = await supabase
@@ -137,12 +140,17 @@ export default function OnboardingFlow() {
       .insert(interests)
 
     if (interestsError) {
-      setError(interestsError.message)
+      setError(`Couldn't save your interests: ${interestsError.message}. Please try again.`)
       setSaving(false)
       return
     }
 
-    router.replace("/overlap")
+    // Show success screen briefly before redirecting
+    setSaving(false)
+    setStep("success")
+    setTimeout(() => {
+      router.replace("/overlap")
+    }, 2000)
   }
 
   return (
@@ -191,6 +199,25 @@ export default function OnboardingFlow() {
             onBack={() => setStep("location")}
             saving={saving}
           />
+        )}
+        {step === "success" && (
+          <div className="flex flex-col items-center text-center py-12">
+            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mb-6">
+              <svg className="w-8 h-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-medium text-stone-900 tracking-tight">
+              You're all set!
+            </h1>
+            <p className="mt-2 text-stone-500 text-sm leading-relaxed max-w-xs">
+              Looking for people who share your interests nearby...
+            </p>
+            <div className="mt-6 flex items-center gap-2 text-stone-400">
+              <div className="w-4 h-4 border-2 border-stone-300 border-t-stone-600 rounded-full animate-spin" />
+              <span className="text-sm">Finding your overlap</span>
+            </div>
+          </div>
         )}
       </div>
     </div>

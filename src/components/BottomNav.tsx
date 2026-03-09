@@ -13,7 +13,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { id: "overlap", label: "Overlap", href: "/overlap" },
   { id: "activity", label: "Activity", href: "/activity" },
-  { id: "you", label: "You", href: "/profile" },
+  { id: "profile", label: "Profile", href: "/profile" },
 ]
 
 type BottomNavProps = {
@@ -26,15 +26,15 @@ export default function BottomNav({ activityBadge = 0 }: BottomNavProps) {
   const getActiveTab = () => {
     if (pathname.startsWith("/overlap")) return "overlap"
     if (pathname.startsWith("/activity") || pathname.startsWith("/connections") || pathname.startsWith("/meetups")) return "activity"
-    if (pathname.startsWith("/profile") || pathname.startsWith("/settings") || pathname.startsWith("/network")) return "you"
+    if (pathname.startsWith("/profile") || pathname.startsWith("/settings") || pathname.startsWith("/network")) return "profile"
     return "overlap"
   }
 
   const activeTab = getActiveTab()
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 z-50">
-      <div className="max-w-lg mx-auto flex">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 z-50 pb-[env(safe-area-inset-bottom)]">
+      <div className="max-w-lg mx-auto flex h-16">
         {navItems.map((item) => {
           const isActive = activeTab === item.id
           const showBadge = item.id === "activity" && activityBadge > 0
@@ -109,7 +109,7 @@ function NavIcon({ id, isActive }: { id: string; isActive: boolean }) {
           <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
         </svg>
       )
-    case "you":
+    case "profile":
       // Person icon
       return (
         <svg

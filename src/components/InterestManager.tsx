@@ -4,15 +4,16 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
-type Frequency = "yearly" | "monthly" | "weekly"
-type Level = "beginner" | "casual" | "experienced"
+type Commitment = "casual" | "regular" | "dedicated"
+type Level = "beginner" | "intermediate" | "experienced"
 
 type UserInterest = {
   activityId: string
   label: string
   verb: string
-  frequency: Frequency
-  level: Level
+  commitment: Commitment
+  level: Level | null
+  hasLevel: boolean
   isActive: boolean
   lastEngagedAt: string
 }
@@ -22,19 +23,26 @@ type Activity = {
   label: string
   verb: string
   category: string
+  has_level: boolean
 }
 
 const MAX_INTERESTS = 7
 
-const FREQUENCY_LABELS: Record<Frequency, string> = {
-  yearly: "A few times a year",
-  monthly: "Monthly",
-  weekly: "Weekly",
+const COMMITMENT_LABELS: Record<Commitment, string> = {
+  casual: "Casual",
+  regular: "Regular",
+  dedicated: "Dedicated",
+}
+
+const COMMITMENT_DESCRIPTIONS: Record<Commitment, string> = {
+  casual: "Something I do occasionally",
+  regular: "Part of my routine",
+  dedicated: "A big part of my life",
 }
 
 const LEVEL_LABELS: Record<Level, string> = {
   beginner: "Beginner",
-  casual: "Casual",
+  intermediate: "Intermediate",
   experienced: "Experienced",
 }
 
@@ -52,15 +60,24 @@ export default function InterestManager({ userId, onSaved }: Props) {
 
   // For editing an interest
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editFrequency, setEditFrequency] = useState<Frequency>("monthly")
-  const [editLevel, setEditLevel] = useState<Level>("casual")
+  const [editingHasLevel, setEditingHasLevel] = useState<boolean>(true)
+  const [editCommitment, setEditCommitment] = useState<Commitment>("regular")
+  const [editLevel, setEditLevel] = useState<Level>("intermediate")
 
   // For adding/swapping
   const [showAddModal, setShowAddModal] = useState(false)
   const [swappingId, setSwappingId] = useState<string | null>(null)
   const [selectedNewActivity, setSelectedNewActivity] = useState<Activity | null>(null)
-  const [newFrequency, setNewFrequency] = useState<Frequency>("monthly")
-  const [newLevel, setNewLevel] = useState<Level>("casual")
+  const [newCommitment, setNewCommitment] = useState<Commitment>("regular")
+  const [newLevel, setNewLevel] = useState<Level>("intermediate")
+
+  // Toast state
+  const [toast, setToast] = useState<string | null>(null)
+
+  const showToast = (message: string) => {
+    setToast(message)
+    setTimeout(() => setToast(null), 2000)
+  }
 
   useEffect(() => {
     loadData()
@@ -74,26 +91,26 @@ export default function InterestManager({ userId, onSaved }: Props) {
       .from("user_interests")
       .select(`
         activity_id,
-        frequency,
+        commitment,
         level,
         is_active,
         last_engaged_at,
-        activity:activities(id, label, verb)
+        activity:activities(id, label, verb, has_level)
       `)
       .eq("user_id", userId)
 
     // Load all activities for add/swap
     const { data: activities } = await supabase
       .from("activities")
-      .select("id, label, verb, category")
+      .select("id, label, verb, category, has_level")
       .eq("status", "active")
       .order("label")
 
     if (userInterests) {
       type UserInterestRow = {
         activity_id: string
-        activity: { label: string; verb: string } | null
-        frequency: string | null
+        activity: { label: string; verb: string; has_level: boolean | null } | null
+        commitment: string | null
         level: string | null
         is_active: boolean | null
         last_engaged_at: string | null
@@ -102,8 +119,9 @@ export default function InterestManager({ userId, onSaved }: Props) {
         activityId: ui.activity_id,
         label: ui.activity?.label || "",
         verb: ui.activity?.verb || "",
-        frequency: ui.frequency as Frequency,
-        level: ui.level as Level,
+        commitment: (ui.commitment as Commitment) || "regular",
+        level: ui.level as Level | null,
+        hasLevel: ui.activity?.has_level ?? true,
         isActive: ui.is_active ?? true,
         lastEngagedAt: ui.last_engaged_at,
       }))
@@ -111,7 +129,9 @@ export default function InterestManager({ userId, onSaved }: Props) {
     }
 
     if (activities) {
-      setAllActivities(activities)
+      // Default has_level to true if not set
+      type ActivityRow = { id: string; label: string; verb: string; category: string; has_level: boolean | null }
+      setAllActivities(activities.map((a: ActivityRow) => ({ ...a, has_level: a.has_level ?? true })))
     }
 
     setLoading(false)
@@ -145,13 +165,16 @@ export default function InterestManager({ userId, onSaved }: Props) {
         )
       )
       setError(error.message)
+    } else {
+      showToast(newIsActive ? "Interest activated" : "Interest paused")
     }
   }
 
   const startEdit = (interest: UserInterest) => {
     setEditingId(interest.activityId)
-    setEditFrequency(interest.frequency)
-    setEditLevel(interest.level)
+    setEditingHasLevel(interest.hasLevel)
+    setEditCommitment(interest.commitment)
+    setEditLevel(interest.level || "intermediate")
   }
 
   const saveEdit = async () => {
@@ -163,8 +186,8 @@ export default function InterestManager({ userId, onSaved }: Props) {
     const { error } = await supabase
       .from("user_interests")
       .update({
-        frequency: editFrequency,
-        level: editLevel,
+        commitment: editCommitment,
+        level: editingHasLevel ? editLevel : null,
       })
       .eq("user_id", userId)
       .eq("activity_id", editingId)
@@ -175,7 +198,7 @@ export default function InterestManager({ userId, onSaved }: Props) {
       setInterests((prev) =>
         prev.map((i) =>
           i.activityId === editingId
-            ? { ...i, frequency: editFrequency, level: editLevel }
+            ? { ...i, commitment: editCommitment, level: editingHasLevel ? editLevel : null }
             : i
         )
       )
@@ -193,16 +216,16 @@ export default function InterestManager({ userId, onSaved }: Props) {
   const openSwapModal = (activityId: string) => {
     setSwappingId(activityId)
     setSelectedNewActivity(null)
-    setNewFrequency("monthly")
-    setNewLevel("casual")
+    setNewCommitment("regular")
+    setNewLevel("intermediate")
     setShowAddModal(true)
   }
 
   const openAddModal = () => {
     setSwappingId(null)
     setSelectedNewActivity(null)
-    setNewFrequency("monthly")
-    setNewLevel("casual")
+    setNewCommitment("regular")
+    setNewLevel("intermediate")
     setShowAddModal(true)
   }
 
@@ -231,8 +254,8 @@ export default function InterestManager({ userId, onSaved }: Props) {
     const { error } = await supabase.from("user_interests").insert({
       user_id: userId,
       activity_id: selectedNewActivity.id,
-      frequency: newFrequency,
-      level: newLevel,
+      commitment: newCommitment,
+      level: selectedNewActivity.has_level ? newLevel : null,
       is_active: true,
       last_engaged_at: new Date().toISOString(),
     })
@@ -311,44 +334,46 @@ export default function InterestManager({ userId, onSaved }: Props) {
                   <p className="font-medium text-stone-900">{interest.verb}</p>
 
                   <div>
-                    <p className="text-xs text-stone-500 mb-2">How often?</p>
+                    <p className="text-xs text-stone-500 mb-2">How into it?</p>
                     <div className="flex gap-2">
-                      {(["yearly", "monthly", "weekly"] as Frequency[]).map((f) => (
+                      {(["casual", "regular", "dedicated"] as Commitment[]).map((c) => (
                         <button
-                          key={f}
-                          onClick={() => setEditFrequency(f)}
+                          key={c}
+                          onClick={() => setEditCommitment(c)}
                           className={cn(
                             "flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-all border",
-                            editFrequency === f
+                            editCommitment === c
                               ? "bg-stone-900 text-white border-stone-900"
                               : "bg-white text-stone-600 border-stone-200"
                           )}
                         >
-                          {FREQUENCY_LABELS[f]}
+                          {COMMITMENT_LABELS[c]}
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  <div>
-                    <p className="text-xs text-stone-500 mb-2">Level</p>
-                    <div className="flex gap-2">
-                      {(["beginner", "casual", "experienced"] as Level[]).map((l) => (
-                        <button
-                          key={l}
-                          onClick={() => setEditLevel(l)}
-                          className={cn(
-                            "flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-all border",
-                            editLevel === l
-                              ? "bg-stone-900 text-white border-stone-900"
-                              : "bg-white text-stone-600 border-stone-200"
-                          )}
-                        >
-                          {LEVEL_LABELS[l]}
-                        </button>
-                      ))}
+                  {editingHasLevel && (
+                    <div>
+                      <p className="text-xs text-stone-500 mb-2">Level</p>
+                      <div className="flex gap-2">
+                        {(["beginner", "intermediate", "experienced"] as Level[]).map((l) => (
+                          <button
+                            key={l}
+                            onClick={() => setEditLevel(l)}
+                            className={cn(
+                              "flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-all border",
+                              editLevel === l
+                                ? "bg-stone-900 text-white border-stone-900"
+                                : "bg-white text-stone-600 border-stone-200"
+                            )}
+                          >
+                            {LEVEL_LABELS[l]}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="flex gap-2 mt-2">
                     <button
@@ -380,7 +405,7 @@ export default function InterestManager({ userId, onSaved }: Props) {
                       {interest.verb}
                     </p>
                     <p className="text-xs text-stone-400 mt-1">
-                      {FREQUENCY_LABELS[interest.frequency]} · {LEVEL_LABELS[interest.level]}
+                      {COMMITMENT_LABELS[interest.commitment]}{interest.hasLevel && interest.level ? ` · ${LEVEL_LABELS[interest.level]}` : ""}
                     </p>
                   </div>
 
@@ -436,7 +461,12 @@ export default function InterestManager({ userId, onSaved }: Props) {
 
       {/* Add/Swap Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !saving) closeAddModal()
+          }}
+        >
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl max-h-[80vh] flex flex-col">
             <h2 className="text-lg font-medium text-stone-900">
               {swappingId ? "Replace interest" : "Add interest"}
@@ -457,47 +487,55 @@ export default function InterestManager({ userId, onSaved }: Props) {
 
                 <div>
                   <p className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">
-                    How often?
+                    How into it are you?
                   </p>
-                  <div className="flex gap-2">
-                    {(["yearly", "monthly", "weekly"] as Frequency[]).map((f) => (
+                  <div className="flex flex-col gap-2">
+                    {(["casual", "regular", "dedicated"] as Commitment[]).map((c) => (
                       <button
-                        key={f}
-                        onClick={() => setNewFrequency(f)}
+                        key={c}
+                        onClick={() => setNewCommitment(c)}
                         className={cn(
-                          "flex-1 py-2 px-2 rounded-lg text-xs font-medium transition-all border",
-                          newFrequency === f
+                          "w-full py-2.5 px-3 rounded-xl text-left transition-all border",
+                          newCommitment === c
                             ? "bg-stone-900 text-white border-stone-900"
                             : "bg-white text-stone-600 border-stone-200"
                         )}
                       >
-                        {FREQUENCY_LABELS[f]}
+                        <span className="text-sm font-medium">{COMMITMENT_LABELS[c]}</span>
+                        <span className={cn(
+                          "block text-xs mt-0.5",
+                          newCommitment === c ? "text-stone-300" : "text-stone-400"
+                        )}>
+                          {COMMITMENT_DESCRIPTIONS[c]}
+                        </span>
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <div>
-                  <p className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">
-                    Experience level
-                  </p>
-                  <div className="flex gap-2">
-                    {(["beginner", "casual", "experienced"] as Level[]).map((l) => (
-                      <button
-                        key={l}
-                        onClick={() => setNewLevel(l)}
-                        className={cn(
-                          "flex-1 py-2 px-2 rounded-lg text-xs font-medium transition-all border",
-                          newLevel === l
-                            ? "bg-stone-900 text-white border-stone-900"
-                            : "bg-white text-stone-600 border-stone-200"
-                        )}
-                      >
-                        {LEVEL_LABELS[l]}
-                      </button>
-                    ))}
+                {selectedNewActivity.has_level && (
+                  <div>
+                    <p className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">
+                      Experience level
+                    </p>
+                    <div className="flex gap-2">
+                      {(["beginner", "intermediate", "experienced"] as Level[]).map((l) => (
+                        <button
+                          key={l}
+                          onClick={() => setNewLevel(l)}
+                          className={cn(
+                            "flex-1 py-2 px-2 rounded-lg text-xs font-medium transition-all border",
+                            newLevel === l
+                              ? "bg-stone-900 text-white border-stone-900"
+                              : "bg-white text-stone-600 border-stone-200"
+                          )}
+                        >
+                          {LEVEL_LABELS[l]}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div className="flex gap-3 mt-2">
                   <button
@@ -548,6 +586,18 @@ export default function InterestManager({ userId, onSaved }: Props) {
                 Cancel
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Toast - z-60 to appear above modals */}
+      {toast && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60]">
+          <div className="bg-stone-900 text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg flex items-center gap-2">
+            <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            {toast}
           </div>
         </div>
       )}

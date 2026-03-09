@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
-import type { InterestSelection, Frequency, Level } from "./OnboardingFlow"
+import type { InterestSelection, Commitment, Level } from "./OnboardingFlow"
 
 type Activity = {
   id: string
@@ -12,6 +12,7 @@ type Activity = {
   category: string
   parent_id: string | null
   tier: number
+  has_level: boolean
 }
 
 type Props = {
@@ -37,15 +38,15 @@ const CATEGORY_LABELS: Record<string, string> = {
   technology: "Technology",
 }
 
-const FREQUENCY_OPTIONS: { value: Frequency; label: string }[] = [
-  { value: "yearly", label: "A few times a year" },
-  { value: "monthly", label: "Monthly" },
-  { value: "weekly", label: "Weekly" },
+const COMMITMENT_OPTIONS: { value: Commitment; label: string; description: string }[] = [
+  { value: "casual", label: "Casual", description: "It's something I do occasionally" },
+  { value: "regular", label: "Regular", description: "It's part of my routine" },
+  { value: "dedicated", label: "Dedicated", description: "It's a big part of my life" },
 ]
 
 const LEVEL_OPTIONS: { value: Level; label: string }[] = [
   { value: "beginner", label: "Beginner" },
-  { value: "casual", label: "Casual" },
+  { value: "intermediate", label: "Intermediate" },
   { value: "experienced", label: "Experienced" },
 ]
 
@@ -59,20 +60,24 @@ export default function StepInterests({
 
   // For the detail modal
   const [pendingActivity, setPendingActivity] = useState<Activity | null>(null)
-  const [pendingFrequency, setPendingFrequency] = useState<Frequency>("monthly")
-  const [pendingLevel, setPendingLevel] = useState<Level>("casual")
+  const [pendingCommitment, setPendingCommitment] = useState<Commitment>("regular")
+  const [pendingLevel, setPendingLevel] = useState<Level>("intermediate")
+
+  // Toast state
+  const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
     const supabase = createClient()
     supabase
       .from("activities")
-      .select("id, label, verb, category, parent_id, tier")
+      .select("id, label, verb, category, parent_id, tier, has_level")
       .eq("status", "active")
       .order("tier")
       .order("label")
       .then(({ data, error }: { data: Activity[] | null; error: { message: string } | null }) => {
         if (error) setError(error.message)
-        if (data) setActivities(data)
+        // Default has_level to true if not set
+        if (data) setActivities(data.map(a => ({ ...a, has_level: a.has_level ?? true })))
         setLoading(false)
       })
   }, [])
@@ -89,22 +94,27 @@ export default function StepInterests({
     } else if (!atMax) {
       // Show the detail modal
       setPendingActivity(activity)
-      setPendingFrequency("monthly")
-      setPendingLevel("casual")
+      setPendingCommitment("regular")
+      setPendingLevel("intermediate")
     }
   }
 
   const confirmSelection = () => {
     if (!pendingActivity) return
+    const activityVerb = pendingActivity.verb
     onChange([
       ...interests,
       {
         activityId: pendingActivity.id,
-        frequency: pendingFrequency,
-        level: pendingLevel,
+        commitment: pendingCommitment,
+        level: pendingActivity.has_level ? pendingLevel : null,
       },
     ])
     setPendingActivity(null)
+
+    // Show confirmation toast
+    setToast(`Added: ${activityVerb}`)
+    setTimeout(() => setToast(null), 2000)
   }
 
   const cancelSelection = () => {
@@ -264,47 +274,55 @@ export default function StepInterests({
             <div className="mt-6 flex flex-col gap-4">
               <div>
                 <p className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">
-                  How often?
+                  How into it are you?
                 </p>
-                <div className="flex gap-2">
-                  {FREQUENCY_OPTIONS.map((opt) => (
+                <div className="flex flex-col gap-2">
+                  {COMMITMENT_OPTIONS.map((opt) => (
                     <button
                       key={opt.value}
-                      onClick={() => setPendingFrequency(opt.value)}
+                      onClick={() => setPendingCommitment(opt.value)}
                       className={cn(
-                        "flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-all border",
-                        pendingFrequency === opt.value
+                        "w-full py-3 px-4 rounded-xl text-left transition-all border",
+                        pendingCommitment === opt.value
                           ? "bg-stone-900 text-white border-stone-900"
                           : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"
                       )}
                     >
-                      {opt.label}
+                      <span className="text-sm font-medium">{opt.label}</span>
+                      <span className={cn(
+                        "block text-xs mt-0.5",
+                        pendingCommitment === opt.value ? "text-stone-300" : "text-stone-400"
+                      )}>
+                        {opt.description}
+                      </span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div>
-                <p className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">
-                  Experience level
-                </p>
-                <div className="flex gap-2">
-                  {LEVEL_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      onClick={() => setPendingLevel(opt.value)}
-                      className={cn(
-                        "flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-all border",
-                        pendingLevel === opt.value
-                          ? "bg-stone-900 text-white border-stone-900"
-                          : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+              {pendingActivity.has_level && (
+                <div>
+                  <p className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">
+                    Experience level
+                  </p>
+                  <div className="flex gap-2">
+                    {LEVEL_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setPendingLevel(opt.value)}
+                        className={cn(
+                          "flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-all border",
+                          pendingLevel === opt.value
+                            ? "bg-stone-900 text-white border-stone-900"
+                            : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             <div className="mt-6 flex gap-3">
@@ -321,6 +339,18 @@ export default function StepInterests({
                 Add
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast - z-60 to appear above modals */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] animate-in fade-in slide-in-from-bottom-4 duration-200">
+          <div className="bg-stone-900 text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg flex items-center gap-2">
+            <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            {toast}
           </div>
         </div>
       )}

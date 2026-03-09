@@ -157,6 +157,9 @@ export default function ProfilePage() {
           <h1 className="text-2xl font-medium text-stone-900 tracking-tight mt-1">
             Your profile
           </h1>
+          <p className="text-stone-500 text-sm mt-1">
+            Manage your interests and matching preferences
+          </p>
         </div>
 
         {error && (
@@ -171,53 +174,19 @@ export default function ProfilePage() {
           </div>
         )}
 
-        <div className="flex flex-col gap-6">
-          {/* Network Graph */}
-          <div className="bg-white border border-stone-200 rounded-2xl overflow-hidden">
-            <button
-              onClick={() => setShowGraph(!showGraph)}
-              className="w-full px-5 py-4 flex items-center justify-between text-left"
-            >
-              <span className="text-xs font-medium text-stone-500 uppercase tracking-wide">
-                Your Network
-              </span>
-              <svg
-                className={cn(
-                  "w-4 h-4 text-stone-400 transition-transform",
-                  showGraph ? "rotate-180" : ""
-                )}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {showGraph && (
-              <div className="border-t border-stone-100">
-                {graphLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <div className="w-5 h-5 border-2 border-stone-300 border-t-stone-600 rounded-full animate-spin" />
-                  </div>
-                ) : graphData ? (
-                  <NetworkGraph data={graphData} width={400} height={300} />
-                ) : (
-                  <div className="p-6 text-center">
-                    <p className="text-sm text-stone-400">No network data yet</p>
-                    <p className="text-xs text-stone-400 mt-1">Add interests and location to see connections</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Interests */}
-          {userId && <InterestManager userId={userId} />}
-
-          {/* Settings Section */}
-          <div className="pt-4">
+        <div className="flex flex-col gap-8">
+          {/* Interests Section */}
+          <section>
             <h2 className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-4">
-              Settings
+              Your Interests
+            </h2>
+            {userId && <InterestManager userId={userId} />}
+          </section>
+
+          {/* Location & Matching Section */}
+          <section>
+            <h2 className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-4">
+              Location & Matching
             </h2>
 
             <div className="flex flex-col gap-4">
@@ -237,7 +206,7 @@ export default function ProfilePage() {
               {/* Distance */}
               <div className="bg-white border border-stone-200 rounded-2xl p-5">
                 <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">
-                  Distance
+                  Search Radius
                 </label>
                 <div className="mt-4 px-1">
                   <input
@@ -264,9 +233,12 @@ export default function ProfilePage() {
               {/* Meeting preference */}
               <div className="bg-white border border-stone-200 rounded-2xl p-5">
                 <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">
-                  Meeting preference
+                  Meeting Preference
                 </label>
-                <div className="grid grid-cols-2 gap-2 mt-3">
+                <p className="text-xs text-stone-400 mt-1 mb-3">
+                  This is shown to others before they ping you
+                </p>
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => setProfile({ ...profile, comfortLevel: "open" })}
                     className={cn(
@@ -303,39 +275,79 @@ export default function ProfilePage() {
                   </button>
                 </div>
               </div>
+
+              {/* Save button */}
+              <button
+                onClick={handleSave}
+                disabled={!hasChanges || saving}
+                className={cn(
+                  "w-full py-3 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-2",
+                  hasChanges && !saving
+                    ? "bg-stone-900 text-white hover:bg-stone-700"
+                    : "bg-stone-100 text-stone-300 cursor-not-allowed"
+                )}
+              >
+                {saving ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-stone-300 border-t-stone-600 rounded-full animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save changes"
+                )}
+              </button>
             </div>
+          </section>
 
-            {/* Save button */}
-            <button
-              onClick={handleSave}
-              disabled={!hasChanges || saving}
-              className={cn(
-                "w-full mt-6 py-3 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-2",
-                hasChanges && !saving
-                  ? "bg-stone-900 text-white hover:bg-stone-700"
-                  : "bg-stone-100 text-stone-300 cursor-not-allowed"
-              )}
-            >
-              {saving ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-stone-300 border-t-stone-600 rounded-full animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                "Save changes"
-              )}
-            </button>
-          </div>
+          {/* Network Section - only show if there's data */}
+          {graphData && graphData.nodes.length > 0 && (
+            <section>
+              <div className="bg-white border border-stone-200 rounded-2xl overflow-hidden">
+                <button
+                  onClick={() => setShowGraph(!showGraph)}
+                  className="w-full px-5 py-4 flex items-center justify-between text-left"
+                >
+                  <div>
+                    <span className="text-xs font-medium text-stone-500 uppercase tracking-wide">
+                      Your Network
+                    </span>
+                    <p className="text-xs text-stone-400 mt-0.5">
+                      {graphData.nodes.length} connection{graphData.nodes.length !== 1 ? "s" : ""} across your interests
+                    </p>
+                  </div>
+                  <svg
+                    className={cn(
+                      "w-4 h-4 text-stone-400 transition-transform",
+                      showGraph ? "rotate-180" : ""
+                    )}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {showGraph && (
+                  <div className="border-t border-stone-100">
+                    <NetworkGraph data={graphData} width={400} height={300} />
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
 
-          {/* Sign out */}
-          <div className="pt-6 border-t border-stone-200">
+          {/* Account Section */}
+          <section>
+            <h2 className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-4">
+              Account
+            </h2>
             <button
               onClick={handleSignOut}
-              className="w-full py-3 rounded-xl font-medium text-sm border border-stone-200 text-stone-500 hover:border-stone-400 hover:text-stone-700 transition-all"
+              className="w-full py-3 rounded-xl font-medium text-sm border border-stone-200 text-stone-500 hover:border-stone-400 hover:text-stone-700 transition-all bg-white"
             >
               Sign out
             </button>
-          </div>
+          </section>
         </div>
       </div>
     </div>
